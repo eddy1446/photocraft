@@ -25,14 +25,17 @@ jobs:
       - name: Move Fonts to Relative Path
         run: mv craft-fonts ../craft-fonts
 
-      # FIXED: Added the context folder argument so trunk finds the package workspace
+      # FIXED: Navigate to the web workspace package folder before compiling
       - name: Build Web App (Wasm)
-        run: trunk build --release .
+        run: |
+          cd apps/photocraft-web
+          trunk build --release
 
+      # FIXED: Updated build folder path to find the output dist files
       - name: Convert Web Build to Android APK
         uses: darkshredder/web-to-app-action@main
         with:
-          build-folder-path: "dist"
+          build-folder-path: "apps/photocraft-web/dist"
           app-name: "PhotoCraft"
           output-folder-path: "my-apk"
 
