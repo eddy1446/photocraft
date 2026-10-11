@@ -42,7 +42,7 @@ jobs:
             apps/photocraft-web
 
       - name: Install Trunk
-        uses: taiki-e/install-action@trunk
+        run: cargo install --locked trunk
 
       - name: Put Craft Fonts in the expected sibling directory
         run: |
