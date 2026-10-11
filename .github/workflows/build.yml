@@ -1,0 +1,44 @@
+name: Build Web App and Android APK
+on: [push, workflow_dispatch]
+
+jobs:
+  build-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PhotoCraft
+        uses: actions/checkout@v4
+
+      - name: Checkout Craft Fonts
+        uses: actions/checkout@v4
+        with:
+          repository: storytold/craft-fonts
+          path: craft-fonts
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        run: cargo install --locked trunk
+
+      - name: Move Fonts to Relative Path
+        run: mv craft-fonts ../craft-fonts
+
+      - name: Build Web App (Wasm)
+        run: trunk build --release
+
+      - name: Build Android APK via Web-to-APK
+        uses: flier/web-to-apk-action@v1
+        with:
+          app-name: "PhotoCraft"
+          package-name: "com.artcraft.photocraft"
+          web-dir: "./dist"
+          output-apk: "photocraft.apk"
+
+      - name: Upload Finished APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: photocraft-android-apk
+          path: photocraft.apk
+          
