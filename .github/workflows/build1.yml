@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: photocraft-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-android:
-    name: Build web app and package APK
-    runs-on: ubuntu-latest
+    name: Build PhotoCraft and package Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Check out PhotoCraft
@@ -24,37 +29,107 @@ jobs:
           repository: storytold/craft-fonts
           path: craft-fonts
 
-      - name: Set up Rust
+      - name: Set up Rust stable and WebAssembly target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install Trunk
-        run: cargo install --locked trunk
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            apps/photocraft-web
 
-      - name: Place Craft Fonts beside the repository
-        run: mv "$GITHUB_WORKSPACE/craft-fonts" "$GITHUB_WORKSPACE/../craft-fonts"
+      - name: Install Trunk
+        uses: taiki-e/install-action@trunk
+
+      - name: Put Craft Fonts in the expected sibling directory
+        run: |
+          test -d craft-fonts
+          mv "$GITHUB_WORKSPACE/craft-fonts" "$GITHUB_WORKSPACE/../craft-fonts"
 
       - name: Build PhotoCraft WebAssembly app
         working-directory: apps/photocraft-web
-        run: trunk build --release --dist "$GITHUB_WORKSPACE/dist"
+        run: |
+          trunk build --release --dist "$GITHUB_WORKSPACE/dist"
+          test -s "$GITHUB_WORKSPACE/dist/index.html"
+          echo "Built web files:"
+          find "$GITHUB_WORKSPACE/dist" -maxdepth 2 -type f | sort | head -100
 
-      - name: Set up Node.js 22 for Capacitor
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Package web build as Android APK
-        uses: darkshredder/web-to-app-action@main
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
-          build-folder-path: dist
-          app-name: PhotoCraft
-          output-folder-path: my-apk
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
 
-      - name: Upload APK artifact
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create a dedicated Capacitor Android wrapper
+        env:
+          APP_ID: com.eddy1446.photocraft
+          APP_NAME: PhotoCraft
+        run: |
+          mkdir -p android-wrapper/www
+          cp -a "$GITHUB_WORKSPACE/dist/." "$GITHUB_WORKSPACE/android-wrapper/www/"
+
+          cd android-wrapper
+          cat > package.json <<'EOF'
+          {
+            "name": "photocraft-android",
+            "version": "1.0.0",
+            "private": true,
+            "description": "Android wrapper for PhotoCraft WebAssembly",
+            "scripts": {
+              "build:android": "cap sync android"
+            },
+            "dependencies": {
+              "@capacitor/android": "^7.4.3",
+              "@capacitor/core": "^7.4.3"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^7.4.3"
+            }
+          }
+          EOF
+
+          cat > capacitor.config.json <<EOF
+          {
+            "appId": "$APP_ID",
+            "appName": "$APP_NAME",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
+          npm install
+          npx cap add android
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android-wrapper/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Verify APK output
+        run: |
+          APK="android-wrapper/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
           name: photocraft-android-apk
-          path: my-apk/**/*.apk
+          path: android-wrapper/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
