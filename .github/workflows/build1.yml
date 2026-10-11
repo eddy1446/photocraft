@@ -1,20 +1,30 @@
-name: Build Web App and Android APK
-on: [push, workflow_dispatch]
+name: Build PhotoCraft Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build-all:
+  build-android:
+    name: Build web app and package APK
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout PhotoCraft
+      - name: Check out PhotoCraft
         uses: actions/checkout@v4
 
-      - name: Checkout Craft Fonts
+      - name: Check out Craft Fonts
         uses: actions/checkout@v4
         with:
           repository: storytold/craft-fonts
           path: craft-fonts
 
-      - name: Setup Rust Toolchain
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -22,29 +32,29 @@ jobs:
       - name: Install Trunk
         run: cargo install --locked trunk
 
-      - name: Move Fonts to Relative Path
-        run: mv craft-fonts ../craft-fonts
+      - name: Place Craft Fonts beside the repository
+        run: mv "$GITHUB_WORKSPACE/craft-fonts" "$GITHUB_WORKSPACE/../craft-fonts"
 
-      - name: Build Web App (Wasm)
-        run: |
-          cd apps/photocraft-web
-          trunk build --release --dist ../../dist
+      - name: Build PhotoCraft WebAssembly app
+        working-directory: apps/photocraft-web
+        run: trunk build --release --dist "$GITHUB_WORKSPACE/dist"
 
-      # FIXED: Force GitHub to use Node 22 so Capacitor CLI works perfectly
-      - name: Setup Node.js 22
+      - name: Set up Node.js 22 for Capacitor
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Convert Web Build to Android APK
+      - name: Package web build as Android APK
         uses: darkshredder/web-to-app-action@main
         with:
-          build-folder-path: "dist"
-          app-name: "PhotoCraft"
-          output-folder-path: "my-apk"
+          build-folder-path: dist
+          app-name: PhotoCraft
+          output-folder-path: my-apk
 
-      - name: Upload Finished APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: photocraft-android-apk
-          path: my-apk/
+          path: my-apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
